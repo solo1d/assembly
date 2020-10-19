@@ -49,9 +49,12 @@
   - [DF标志位和movsb串传送指令](#DF标志位和movsb串传送指令)
   - [rep 循环后面单个指令](#rep)
   - [移位指令](#移位指令)
+  - [cmp对比指令和 ja 跳转](#cmp和ja)
 - [操作显存数据](#操作显存数据)
 - [数据标号](#数据标号)
-- [直接定址表](#直接定址表)
+- [数据的直接定址表](#数据的直接定址表)
+- [代码的直接定址表](#代码的直接定址表)
+- [对外部设备的控制](#对外部设备的控制)
 - 
 
 
@@ -498,7 +501,7 @@ end   start     ;汇编程序结束标记,让编译器知道 程序在此处结�
 **8位的寄存器 AL, 如果 ADD 加的值过大 产生了向第九位的进位, 那么这个进位会被清除, 不会放到 AH中**
 
 ```assembly
-mov  AX, 18D     #将 18 十进制立即数放入 AX寄存器,  AX = 18
+mov  AX, 18H     #将 18 十六进制立即数放入 AX寄存器,  AX = 18
 mov  AX, BX	     #  AX = BX
 mov  AL, 0x100   #  AL是8位寄存器,加上一个9位数还是等于0,溢出位不会添加到 AH中
 mov  AL, [2]     # 读取数据段DS寄存器 加2 偏移值 指向的数据内容,放到AL, 读取一个字节
@@ -859,9 +862,24 @@ shl  AL, CL     ;  逻辑左移  AL=1110 1111   , -> AL=0111 1000
 
 
 
+## cmp和ja
+
+- **cmp对比指令**
+  - `cmp 寄存器, 立即数`  ;如果寄存器的值 大于 立即数, 那么会执行后面的 `ja 标号` 指令, 否则不会进行跳转
+- **ja 依靠 cmp 使用的跳转指令**
+
+```assembly
+mov AX, 1
+cmp AX, 2  ; AX寄存器的值小于2, 那么不会执行跳转, 而是会来到 mov BX,2 进行执行
+ja start
+mov BX, 2
+```
 
 
-## 操作显存数据
+
+
+
+# 操作显存数据
 
 > **屏幕上的内容 等于  显存中的数据**
 >
@@ -880,6 +898,140 @@ shl  AL, CL     ;  逻辑左移  AL=1110 1111   , -> AL=0111 1000
 >         - AX=9C41  写入 B800:0000即可,   (注意高位和地位)
 
 <img src="png/DosBox显存.png" alt="DosBox显存" style="zoom:33%;" />
+
+```assembly
+assume cs:code
+code  segment
+start:
+    ; 调用清屏
+    ;call clear
+	
+    ; 调用 设置所有字体的颜色, AX是参数,  低位al是ascii, 高位ah是颜色
+    ;mov AX, 200h  ;显示字符不变, 修改所有字符为 绿色, 
+    ;call   setWordColor
+
+
+    ; 调用 设置背景颜色
+    ;mov al, 0
+    ;mov ah,20h  ; 设置颜色为绿色
+    ;call setBackgroundColor
+
+    ; 向上滚动一行
+    call upLap
+
+    mov ax , 4c00h
+    int  21h
+
+
+clear:
+    ; 清屏代码
+    ;  5F 空格ASCII
+    ;   属性 全0
+    push CX
+    push AX
+    push BX
+    push ES
+
+    mov AX, 0B800h
+    mov ES, AX
+    mov AX, 05fh
+    mov BX, 0
+    mov CX, 07d0h
+clearLoop:
+    mov ES:[BX], AX
+    add BX, 2
+    loop  clearLoop
+
+    pop ES
+    pop BX
+    pop AX
+    pop CX
+    ret
+
+
+; 设置字体颜色代码,  AL 的最后3位保存了字体颜色设置
+setWordColor:    
+    
+    push CX
+    push AX
+    push BX
+    push ES
+
+    and AX, 0700h  ;只保留最后三位
+    mov BX, 0B800h
+    mov ES, BX
+    mov BX, 0
+    mov CX, 07d0h
+setWordColorLoop:
+    and ES:[BX], 0f8ffh  ; 清除字体颜色
+    or  ES:[BX], AX  ; 设置字体颜色
+    add BX, 2
+    loop  setWordColorLoop
+
+    pop ES
+    pop BX
+    pop AX
+    pop CX
+    ret
+
+
+; 设置背景颜色
+setBackgroundColor:
+      
+    push CX
+    push AX
+    push BX
+    push ES
+
+    and AX, 07000h  ;只保留ah 寄存器的4,5,6 这三位
+    mov BX, 0B800h
+    mov ES, BX
+    mov BX, 0
+    mov CX, 07d0h
+setBackgroundColorLoop:
+    and ES:[BX], 08fffh  ; 清除背景颜色
+    or  ES:[BX], AX  ; 设置背景颜色
+    add BX, 2
+    loop  setBackgroundColorLoop
+
+    pop ES
+    pop BX
+    pop AX
+    pop CX
+    ret
+
+
+;向上滚动一行
+upLap:
+     
+    push CX
+    push BX
+    push ES
+    push DI
+    push SI
+    push DS
+
+    mov BX, 0B800h
+    mov DS, BX
+    mov ES, BX
+    mov SI, 0a0h   ; 160
+    mov DI, 0
+    mov CX, 0730h
+    
+    cld 
+    rep movsw 
+    
+    pop DS
+    pop SI
+    pop DI
+    pop ES
+    pop BX
+    pop CX
+    ret
+
+code ends
+end start
+```
 
 
 
@@ -923,9 +1075,237 @@ end start
 
 
 
-## 直接定址表
+## 数据的直接定址表
 
-用查表的方法解决问题
+**用查表的方法解决问题**
+
+**利用表 ,在两个数据集合之间建立一种映射关系, 用查表的方法根据给出的数据 得到其在另一集合中的对应数据.**
+
+
+
+```assembly
+assume cs:code 
+code  segment
+start:
+   mov al, 2Bh
+   call showbyte
+   mov ax, 4c00h
+   int 21h
+
+showbyte:
+    jmp short show
+    table db '0123456789ABCDEF'   ;字符表 , table是数据标识, 显示字符
+
+show:
+    push BX
+    push ES 
+    push CX
+
+    mov ah, al  ;低位内容 复制到高位
+    mov cl, 4h  ;设置下面移位指令的参数
+    shr ah, cl  ; 将AX寄存器的高8位,也就是ah 寄存器 的内容 逻辑右移四位, 清空ah寄存器高4位
+    and  al, 00001111b   ;al中为低4位的值 进行并操作
+
+
+    mov bl, ah
+    mov bh, 0
+    mov ah, table[BX]  ;BX 寻址寄存器
+
+    mov BX, 0b800h
+    mov ES, BX
+    mov CS:[160*12+40*2], ah
+    ;mov CS:[160*12+40*2+1], 9ch
+
+    mov bl, al
+    mov bh, 0
+    mov al, table[BX]
+
+    mov ES:[160*12+40*2+2], al
+    ;mov ES:[160*12+40*2+3], 9ch
+
+
+    pop CX
+    pop ES
+    pop BX
+    ret
+
+
+code ends
+end start
+```
+
+
+
+
+
+## 代码的直接定址表
+
+```assembly
+assume cs:code
+code  segment
+start:
+;下面就是直接定址表和使用方式
+    table dw clear, setWordColor, setBackgroundColor, upLap ; 偏移地址, 长度必须是字
+
+    push BX
+    push CX
+
+    ; 将BX设置为功能号, 指向想要指向的指令的地址
+    mov  BX,0
+    add  BX,BX
+    call table[BX]  ;调用清屏, 相当于 call clear
+
+;间隙
+    mov  BX,1
+    add  BX,BX
+    mov AX, 200h  ;显示字符不变, 修改所有字符为 绿色, 
+    call table[BX] ; 调用 设置所有字体的颜色, AX是参数,  低位al是ascii, 高位ah是颜色
+                   ; 相当于 call   setWordColor
+
+;间隙
+    mov  BX,2
+    add  BX,BX
+    mov ah,20h  ; 设置颜色为绿色, 将AX变成参数进行传递
+    call table[BX] ; 相当于 call setBackgroundColor
+
+;间隙
+    mov  BX,3
+    add  BX,BX
+    call table[BX] ; 向上滚动一行, 相当于 call upLap
+    
+    pop CX
+    pop BX
+    
+    mov ax , 4c00h
+    int  21h
+
+
+clear:
+    ; 清屏代码
+    ;  5F 空格ASCII
+    ;   属性 全0
+    push CX
+    push AX
+    push BX
+    push ES
+
+    mov AX, 0B800h
+    mov ES, AX
+    mov AX, 05fh
+    mov BX, 0
+    mov CX, 07d0h
+clearLoop:
+    mov ES:[BX], AX
+    add BX, 2
+    loop  clearLoop
+
+    pop ES
+    pop BX
+    pop AX
+    pop CX
+    ret
+
+
+; 设置字体颜色代码,  AL 的最后3位保存了字体颜色设置
+setWordColor:    
+    
+    push CX
+    push AX
+    push BX
+    push ES
+
+    and AX, 0700h  ;只保留最后三位
+    mov BX, 0B800h
+    mov ES, BX
+    mov BX, 0
+    mov CX, 07d0h
+setWordColorLoop:
+    and ES:[BX], 0f8ffh  ; 清除字体颜色
+    or  ES:[BX], AX  ; 设置字体颜色
+    add BX, 2
+    loop  setWordColorLoop
+
+    pop ES
+    pop BX
+    pop AX
+    pop CX
+    ret
+
+
+; 设置背景颜色
+setBackgroundColor:
+      
+    push CX
+    push AX
+    push BX
+    push ES
+
+    and AX, 07000h  ;只保留ah 寄存器的4,5,6 这三位
+    mov BX, 0B800h
+    mov ES, BX
+    mov BX, 0
+    mov CX, 07d0h
+setBackgroundColorLoop:
+    and ES:[BX], 08fffh  ; 清除背景颜色
+    or  ES:[BX], AX  ; 设置背景颜色
+    add BX, 2
+    loop  setBackgroundColorLoop
+
+    pop ES
+    pop BX
+    pop AX
+    pop CX
+    ret
+
+
+;向上滚动一行
+upLap:
+     
+    push CX
+    push BX
+    push ES
+    push DI
+    push SI
+    push DS
+
+    mov BX, 0B800h
+    mov DS, BX
+    mov ES, BX
+    mov SI, 0a0h   ; 160
+    mov DI, 0
+    mov CX, 0730h
+    
+    cld 
+    rep movsw 
+
+    ;处理最后一行,变成空格
+    mov BX, 0005fh    ;空格
+    mov CX, 50h
+upLapLoop: 
+    mov [DI], BX
+    add DI, 2
+    loop  upLapLoop
+
+
+    pop DS
+    pop SI
+    pop DI
+    pop ES
+    pop BX
+    pop CX
+    ret
+
+code ends
+end start
+```
+
+
+
+# 对外部设备的控制
+
+
+
+
 
 
 
